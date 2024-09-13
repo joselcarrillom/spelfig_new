@@ -3,8 +3,7 @@ import numpy as np
 import emcee
 import spl_models as spm  # Importing the models
 
-
-def spectral_model_emcee(theta, x, models):
+def spectral_model_emcee(theta, x, models, continuum):
     # We will go throughout theta in terms of the single distributions for the emissions
     # Initializing the flux:
     flux = np.zeros_like(x)
@@ -14,24 +13,48 @@ def spectral_model_emcee(theta, x, models):
     for model in models:
         if model == 'Gaussian':
             param_end = param_start + 3
-            flux += spm.gauss(x, *theta[param_start:param_end])
+            try:
+                flux += spm.gauss(x, *theta[param_start:param_end])
+            except:
+                print('Error while calculating model, this complete set of parameters:')
+                print('theta', theta)
+                print('This subset at error', theta[param_start:param_end])
             param_start = param_end
         elif model == 'Asym_Gauss':
             param_end = param_start + 3
-            flux += spm.asym_gauss(x, *theta[param_start:param_end])
+            try:
+                flux += spm.asym_gauss(x, *theta[param_start:param_end])
+            except:
+                print('Error while calculating model, this complete set of parameters:')
+                print('theta', theta)
+                print('This subset at error', theta[param_start:param_end])
             param_start = param_end
         elif model == 'Lorentzian':
             param_end = param_start + 3
-            flux += spm.lorentzian(x, *theta[param_start:param_end])
+            try:
+
+                flux += spm.lorentzian(x, *theta[param_start:param_end])
+            except:
+                print('Error while calculating model, this complete set of parameters:')
+                print('theta', theta)
+                print('This subset at error', theta[param_start:param_end])
             param_start = param_end
         elif model == 'Voigt':
             param_end = param_start + 4
-            flux += spm.voigt(x, *theta[param_start:param_end])
+            try:
+                flux += spm.voigt(x, *theta[param_start:param_end])
+            except:
+                print('Error while calculating model, this complete set of parameters:')
+                print('theta', theta)
+                print('This subset at error', theta[param_start:param_end])
             param_start = param_end
-        elif model == 'Continuum':
-            param_end = param_start + 3
-            flux += spm.continuum_function(x, *theta[param_start:param_end])
-            param_start = param_end
+
+    # Adding the continuum:
+    try:
+        flux += spm.continuum_function(x, *continuum)
+    except:
+        print('Error while calculating continuum, this set of parameters:')
+        print(continuum)
 
     return flux
 
@@ -55,8 +78,8 @@ def logpriors(theta, min_values, max_values, components):
         for j in range(ncomp):
             maxflux = max_values[param_start + j * 3 + 1]
             total_amplitude += theta[param_start + j * 3 + 1]
-        if total_amplitude > maxflux:
-            return -np.inf
+            if total_amplitude > maxflux:
+                return -np.inf
         param_start += params_l
 
     # Evaluate the ratio between amplitudes:
@@ -64,16 +87,27 @@ def logpriors(theta, min_values, max_values, components):
     return 0.0
 
 # The log_probablity function:
-def log_prob(theta, x, y, dy, models):
-    f = spectral_model_emcee(theta, x, models)
+def log_prob(theta, x, y, dy, models, continuum):
+    f = spectral_model_emcee(theta, x, models, continuum)
     return -0.5 * np.sum(((f - y) / dy) ** 2)
 
 # The log_posterior function:
-def log_posterior(theta, x, y, dy, models, min_values, max_values, components):
+def log_posterior(theta, x, y, dy, models, continuum, min_values, max_values, components):
     lp = logpriors(theta, min_values, max_values, components)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + log_prob(theta, x, y, dy, models)
+    return lp + log_prob(theta, x, y, dy, models, continuum)
+
+
+# The goodness of fit calculator:
+def goodness_of_fit(theta, x, y, dy, models, continuum):
+    p = len(theta)
+    N = len(x)
+    f = spectral_model_emcee(theta, x, models, continuum)
+    chi2 = np.sum((y - f) ** 2 / dy ** 2)
+    chi2dof = chi2 / (N - p)
+    BIC = np.log(N) * p - np.log(np.exp(-0.5 * chi2)) * (N - p)
+    return {'chi squared': chi2, 'reduced chi squared': chi2dof, 'BIC': BIC}
 
 def emcee_sampler(theta0, nwalkers, niter, args):
     ndim = len(theta0[0])
@@ -93,7 +127,7 @@ def emcee_sampler(theta0, nwalkers, niter, args):
     return sampler, pos, prob, state
 
 
-def results_df(dfparams_init, theta_max, theta_errors):
+def results_df(dfparams_init, theta_max, theta_errors, continuum):
     '''
     Final dataframe of results, in the format of the input dataframe (all the parameters
     condensed in one column, and without NaNs)
@@ -135,98 +169,18 @@ def results_df(dfparams_init, theta_max, theta_errors):
     results_dict['Line Name'].append('Continuum')
     results_dict['Model'].append('Continuum')
     results_dict['Component'].append(0)
-    results_dict['Parameters'].append(theta_max[param_start:param_start + 3])
-    results_dict['Parameter Errors'].append(theta_errors[param_start:param_start + 3])
+    results_dict['Parameters'].append(continuum)
+    results_dict['Parameter Errors'].append(np.zeros_like(continuum))
 
     return pd.DataFrame(results_dict)
-
-'''
-def lines_df_toprint(resdfparams):
-
-    # Create a dictionary to store the results
-    results_dict = {
-        'Line Name': [],
-        'Model': [],
-        'Component': [],
-        'Centroid': [],
-        'Amplitude': [],
-        'Sigma': [],
-        'Gamma': [],
-        'err_Centroid': [],
-        'err_Amplitude': [],
-        'err_Sigma': [],
-        'err_Gamma': [],
-    }
-
-    # Populate the dictionary with the results
-    param_start = 0
-    for i, line in enumerate(lines):
-        Ncomp = components[i]
-        for j in range(Ncomp):
-            results_dict['Line Name'].append(line)
-            results_dict['Component'].append(j)
-            models[j] = models[param_start + j]
-            results_dict['Model'].append(models[j])
-            # Extracting parameters:
-            # Centroid:
-            centroid = theta_max[param_start + j * 3]
-            err_centroid = theta_errors[param_start + j * 3]
-            # Amplitude:
-            amplitude = theta_max[param_start + j * 3 + 1]
-            err_amplitude = theta_errors[param_start + j * 3 + 1]
-
-            # Sigma and Gamma:
-            if models[j] == 'Gaussian':
-                pn = 3
-                sigma = theta_max[param_start + j * 3 + 2]
-                err_sigma = theta_errors[param_start + j * 3 + 2]
-                gamma = np.nan
-                err_gamma = np.nan
-            elif models[j] == 'Lorentzian':
-                pn = 3
-                gamma = theta_max[param_start + j * 3 + 2]
-                err_gamma = theta_errors[param_start + j * 3 + 2]
-                sigma = np.nan
-                err_sigma = np.nan
-            elif models[j] == 'Voigt':
-                pn = 4
-                sigma = theta_max[param_start + j * 3 + 2]
-                gamma = theta_max[param_start + j * 3 + 3]
-                err_sigma = theta_errors[param_start + j * 3 + 2]
-                err_gamma = theta_errors[param_start + j * 3 + 3]
-                
-            sigma_kms = spm.vel_correct(sigma, centroid)
-            gamma_kms = spm.vel_correct(gamma, centroid)
-            err_sigma_kms = spm.vel_correct(err_sigma, centroid)
-            err_gamma_kms = spm.vel_correct(err_gamma, centroid)
-
-            # Appending results:
-            results_dict['Centroid'].append(centroid)
-            results_dict['Amplitude'].append(amplitude)
-            results_dict['Sigma'].append(sigma)
-            results_dict['Sigma (km/s)'].append(sigma_kms)
-            results_dict['Gamma'].append(gamma)
-            results_dict['Gamma (km/s)'].append(gamma_kms)
-            results_dict['err_Centroid'].append(err_centroid)
-            results_dict['err_Amplitude'].append(err_amplitude)
-            results_dict['err_Sigma'].append(err_sigma)
-            results_dict['err_Sigma (km/s)'].append(err_sigma_kms)
-            results_dict['err_Gamma'].append(err_gamma)
-            results_dict['err_Gamma (km/s)'].append(err_gamma_kms)
-
-        params_per_line = pn * Ncomp
-        param_start += params_per_line
-
-    return pd.DataFrame(results_dict)
- '''
-
 
 def run_mcmc_chains(dfparams, x, y, dy, save_complete_chains=False, savefile=None, niter=1000):
     # First extract the parameters from the dataframe:
     lines = dfparams['Line Name'].unique()
     components = dfparams.groupby('Line Name')['Component'].max()
     models = dfparams['Model'].values
-    # print('This models', models)
+    continuum = dfparams['Parameters'][dfparams['Line Name'] == 'Continuum']
+    print('This continuum', continuum)
     p0 = np.concatenate(dfparams['Parameters'].values)
     # print('This p0', p0)
 
@@ -235,7 +189,7 @@ def run_mcmc_chains(dfparams, x, y, dy, save_complete_chains=False, savefile=Non
     max_values = np.concatenate(dfparams['Max Limits'].values)
 
     #Preparing the args for the log_posterior function:
-    args = [x, y, dy, models, min_values, max_values, components]
+    args = [x, y, dy, models, continuum, min_values, max_values, components]
 
     # Now we are going to initialize the walkers:
     ndim = len(p0)
@@ -265,8 +219,30 @@ def run_mcmc_chains(dfparams, x, y, dy, save_complete_chains=False, savefile=Non
     continuum = theta_max[ndim - 3:]
     # theta_errors = np.array(theta_errors)
 
-    model_parameters_df = results_df(dfparams, theta_max, theta_errors)
+    model_parameters_df = results_df(dfparams, theta_max, theta_errors, continuum)
     print("Successful! Convergence found.")
 
-    return model_parameters_df
+    return model_parameters_df, theta_max
+
+class mcmc_fit(object):
+    '''
+    This class is meant to produce the object containing all relevant outcomes from the mcmc fit.
+    '''
+    def __init__(self, dfparams, x, y, dy, save_complete_chains=False, savefile=None, niter=1000):
+        self.dfparams = dfparams
+        self.continuum = dfparams['Parameters'][dfparams['Line Name'] == 'Continuum']
+        self.x = x
+        self.y = y
+        self.dy = dy
+        self.save_complete_chains = save_complete_chains
+        self.savefile = savefile
+        self.niter = niter
+        self.model_parameters_df, self.theta_max = run_mcmc_chains(self.dfparams, self.x, self.y,
+                                                                   self.dy,
+                                                                   self.save_complete_chains,
+                                                                   self.savefile, self.niter)
+        self.models = self.model_parameters_df['Model'].values
+        self.goodness = goodness_of_fit(self.theta_max, self.x, self.y, self.dy, self.models,
+                                        self.continuum)
+
 
