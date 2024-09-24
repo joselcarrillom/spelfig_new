@@ -4,8 +4,7 @@ import os
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.optimize import curve_fit
-from scipy.signal import find_peaks, peak_widths
+from scipy.signal import find_peaks
 from astropy.io import fits
 from astropy.nddata import StdDevUncertainty
 from specutils import Spectrum1D
@@ -35,7 +34,7 @@ def extract_data(array):
     else:
         raise ValueError("Unsupported array dimension: {}".format(array.ndim))
 
-#
+# Create spectrum array
 def extract_astronomical_data(filename, verbose=True, wavelength_name=None, flux_name=None, error_name=None):
 
     """
@@ -113,7 +112,6 @@ def extract_astronomical_data(filename, verbose=True, wavelength_name=None, flux
         return None
 
 # Emission lines to compare
-
 SNR_emission_lines = {
     'He-II,1':  {'wavelength':[3202.15]},
     'He-II,2':  {'wavelength':[4685.74]},
@@ -224,6 +222,7 @@ def redshift_calc(spectrum, template_spectra, Plot=False):
 
     return redshiftspec
 
+# Signal-to-noise ratio
 def extract_snr(spectrum, redshift, line=None):
 
   wavelength = spectrum[:, 0]/(1+redshift)
@@ -275,3 +274,50 @@ def extract_snr(spectrum, redshift, line=None):
   snr = (peak_flux - local_mean) / local_std if local_std > 0 else print('')
 
   return snr
+
+
+# Create dictionary
+def spectrum_dictionary(directory,templates):
+
+    '''
+    Args:
+    Returns:
+
+    '''
+    spec_dict = {
+        'FILENAME': [],
+        'DATA': [],
+        'SNR': [],
+        'REDSHIFT': []
+    }
+
+    for file in os.listdir(directory):
+        filename = os.fsdecode(file)
+        if filename.endswith(".fits"):  # filename.startswith("manga") and
+            print("Now analysing ", os.path.join(directory, filename))
+            full_dir = os.path.join(directory, filename)
+
+            # id
+            spec_dict['FILENAME'].append(filename)  # to be edited by JL
+
+            # spectra
+            data = extract_astronomical_data(full_dir)
+            spec_dict['DATA'].append(data)
+
+            # redshift
+            redshift = redshift_calc(data, templates, Plot=True)
+            spec_dict['REDSHIFT'].append(redshift)
+
+            # snr
+            try:
+                snr = extract_snr(data, redshift, line='O-III,0')
+                spec_dict['SNR'].append(snr)
+            except:
+                print('UnboundLocalError')
+                spec_dict['SNR'].append(0)
+
+            continue
+        else:
+            continue
+
+    return spec_dict
