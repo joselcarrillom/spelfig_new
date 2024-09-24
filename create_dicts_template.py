@@ -1,6 +1,7 @@
+# Test one for commit
+
 # Import modules
 import os
-
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
@@ -274,7 +275,6 @@ def extract_snr(spectrum, redshift, line=None):
   snr = (peak_flux - local_mean) / local_std if local_std > 0 else print('')
 
   return snr
-
 
 # Create dictionary
 def spectrum_dictionary(directory,templates):
