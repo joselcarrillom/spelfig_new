@@ -224,66 +224,87 @@ def redshift_calc(spectrum, template_spectra, Plot=False):
     return redshiftspec
 
 # Signal-to-noise ratio
+
 def extract_snr(spectrum, redshift, line=None):
 
-  wavelength = spectrum[:, 0]/(1+redshift)
-  flux = spectrum[:, 1]
-  errors = spectrum[:, 2]
+    """
+    This function calculates the S-N ratio of a single emission line in a spectra
 
-  # Select which line from the emission lines to use
-  rest_wavelength = SNR_emission_lines[line]['wavelength'][0] if line is not None else SNR_emission_lines['O-III,0']['wavelength'][0]
+    Args:
+        spectrum (np.ndarray): A 2D NumPy array containing the observed spectrum data.
+        redshift (float): The calculated redshift of the observed spectrum.
+        line (str, optional): A line to extract SNR from, based on the dictionary SNR_emission_lines. Default is O-III.
 
-  # Identify the correct peaks
-  lower_bound = rest_wavelength - 30
-  upper_bound = rest_wavelength + 30
-  mask = (wavelength >= lower_bound) & (wavelength <= upper_bound)
-  window_flux = flux[mask]
-  window_wavelengths = wavelength[mask]
+    Returns:
+        float: The S-N ratio of the observed spectrum.
 
-  peaks, _ = find_peaks(window_flux, prominence=0.5)
-  closest_peak_idx = None
-  min_diff = float('inf')
+    """
 
-  for peak_idx in peaks:
+    wavelength = spectrum[:, 0]/(1+redshift)
+    flux = spectrum[:, 1]
+    errors = spectrum[:, 2]
 
-    observed_wavelength = window_wavelengths[peak_idx]
-    diff = abs(observed_wavelength - rest_wavelength)
+    # Select which line from the emission lines to use
+    rest_wavelength = SNR_emission_lines[line]['wavelength'][0] if line is not None else SNR_emission_lines['O-III,0']['wavelength'][0]
 
-    if diff < min_diff:
-        min_diff = diff
-        closest_peak_idx = peak_idx
+    # Identify the correct peaks
+    lower_bound = rest_wavelength - 30
+    upper_bound = rest_wavelength + 30
+    mask = (wavelength >= lower_bound) & (wavelength <= upper_bound)
+    window_flux = flux[mask]
+    window_wavelengths = wavelength[mask]
 
-  if closest_peak_idx is not None:
-      peak_flux = window_flux[peak_idx]
+    peaks, _ = find_peaks(window_flux, prominence=0.5)
+    closest_peak_idx = None
+    min_diff = float('inf')
 
-  else:
-      print("Closest peak index not found for ", line)
+    for peak_idx in peaks:
 
-  # Define continuum
+      observed_wavelength = window_wavelengths[peak_idx]
+      diff = abs(observed_wavelength - rest_wavelength)
 
-  continuum_mask = (wavelength >= lower_bound) & (wavelength <= upper_bound)
-  continuum_data = flux[continuum_mask]
-  continuum_wavelengths = wavelength[continuum_mask]
+      if diff < min_diff:
+          min_diff = diff
+          closest_peak_idx = peak_idx
 
-  continuum_fit = np.polyfit(continuum_wavelengths, continuum_data, deg=1)
-  continuum_model = np.polyval(continuum_fit, continuum_wavelengths)
+    if closest_peak_idx is not None:
+        peak_flux = window_flux[peak_idx]
 
-  local_std = np.std(continuum_model)
-  local_mean = np.mean(continuum_model)
+    else:
+        print("Closest peak index not found for ", line)
 
-  # Define SNR
-  snr = (peak_flux - local_mean) / local_std if local_std > 0 else print('')
+    # Define continuum
 
-  return snr
+    continuum_mask = (wavelength >= lower_bound) & (wavelength <= upper_bound)
+    continuum_data = flux[continuum_mask]
+    continuum_wavelengths = wavelength[continuum_mask]
+
+    continuum_fit = np.polyfit(continuum_wavelengths, continuum_data, deg=1)
+    continuum_model = np.polyval(continuum_fit, continuum_wavelengths)
+
+    local_std = np.std(continuum_model)
+    local_mean = np.mean(continuum_model)
+
+    # Define SNR
+    snr = (peak_flux - local_mean) / local_std if local_std > 0 else print('')
+
+    return snr
 
 # Create dictionary
 def spectrum_dictionary(directory,templates):
 
     '''
-    Args:
-    Returns:
+    Creates a dictionary containing key info such as filename, spectra, redshift and SNR.
 
+    Args:
+        directory (str): The directory containing the FITS files to analyse.
+        templates (list): A list of `specutils.Spectrum1D` templates for redshift calculations.
+    Returns:
+        dictionary: A dictionary containing the spectra, redshift and SNR.
+    Raises:
+        UnboundLocalError: Occurs when no peak has been identified.
     '''
+
     spec_dict = {
         'FILENAME': [],
         'DATA': [],
@@ -293,12 +314,12 @@ def spectrum_dictionary(directory,templates):
 
     for file in os.listdir(directory):
         filename = os.fsdecode(file)
-        if filename.endswith(".fits"):  # filename.startswith("manga") and
+        if filename.endswith(".fits"):
             print("Now analysing ", os.path.join(directory, filename))
             full_dir = os.path.join(directory, filename)
 
             # id
-            spec_dict['FILENAME'].append(filename)  # to be edited by JL
+            spec_dict['FILENAME'].append(filename)
 
             # spectra
             data = extract_astronomical_data(full_dir)
