@@ -48,12 +48,12 @@ def analyze_emission_lines(x, y, lines_dict, window=20.):
             window_wavelengths = observed_wavelengths[mask]
 
             # Verify the window selection:
-            if window_wavelengths.size:
+            # if window_wavelengths.size:
                 # No other option but plotting. What the heck is happening here?
                 # plt.plot(window_wavelengths, window_flux)
                 # plt.show()
-                print('len window_wavelengths', len(window_wavelengths))
-                print('This is the maximum flux inside the window', np.nanmax(window_flux))
+                # print('len window_wavelengths', len(window_wavelengths))
+                # print('This is the maximum flux inside the window', np.nanmax(window_flux))
 
             if not window_wavelengths.size:
                 continue
@@ -84,7 +84,6 @@ def analyze_emission_lines(x, y, lines_dict, window=20.):
                     'peak_idx': np.where(observed_wavelengths == observed_wavelength)[0][0]
                 })
 
-    print('This the lines identified in the first place: ', matched_lines)
 
     # Update continuum mask and calculate synthetic data for gaps
     for line in matched_lines:
@@ -129,7 +128,6 @@ def filter_and_prepare_linelist(line_results, continuum_spec0, wavelength_range,
     # If noise standard deviation is not provided, assume a default or calculate externally
 
     three_sigma = 3 * snr_ext  # 3 sigma threshold for noise
-    print(f'This is 3 sigma: {three_sigma}')
 
     for line in line_results:
         name = line['line']
@@ -205,7 +203,6 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
     for line in filtered_linelist:
         line_name = line['name']
         components = [emlines_dict[line_name]['components']]
-        print('components', components)
         Ncomp = len(components)
         for j, component in enumerate(components):
             if component == 'Voigt':
@@ -276,11 +273,9 @@ def init_setup(spectrum, emlines_dict, wavelength_range, gamma_init):
 
     # Filter the list of lines present in the spectrum:
     linelist0 = filter_and_prepare_linelist(lines_init, continuum0, wavelength_range, snr_cont)
-    print('This first linelist', linelist0)
 
     # Create an initial parameters dataframe:
     dfparams = initial_dataframe(emlines_dict, linelist0, continuum_pars=continuum_pars)
-    print('This initial dataframe', dfparams)
 
     return dfparams
 
@@ -449,7 +444,7 @@ def spl_plot(x, y, dy, dfparams, x_zoom=None, y_zoom=None, goodness_marks=None):
 
     # Add Chi-squared and BIC as labels with transparency:
     if goodness_marks:
-        chi2 = goodness_marks['Reduced Chi-Squared']
+        chi2 = goodness_marks['reduced chi squared']
         BIC = goodness_marks['BIC']
         ax1.text(0.05, 0.85, f'Chi-squared: {chi2:.2f}', transform=ax1.transAxes, fontsize=12,
                  color='gray', alpha=0.8)
@@ -486,4 +481,111 @@ def spl_plot(x, y, dy, dfparams, x_zoom=None, y_zoom=None, goodness_marks=None):
     
 
     return fig
+def spl_savefile(fit, filename):
+    # Extract the results
+
+    theta_max = fit.fit_parameters
+    theta_errors = fit.fit_errors
+    models = fit.models
+    continuum = fit.continuum
+    goodness = fit.goodness
+    lines = fit.model_parameters_df['Line Name'].unique()
+
+    # Create a dictionary to store the results
+    results_dict = pd.DataFrame({
+        'Line Name': [],
+        'Model': [],
+        'Component': [],
+        'Centroid': [],
+        'Amplitude': [],
+        'Sigma': [],
+        'Sigma (km/s)': [],
+        'Gamma': [],
+        'Gamma (km/s)': [],
+        'err_Centroid': [],
+        'err_Amplitude': [],
+        'err_Sigma': [],
+        'err_Sigma (km/s)': [],
+        'err_Gamma': [],
+        'err_Gamma (km/s)': [],
+    })
+
+    # Populate the dictionary with the results
+    param_start = 0
+    r = 0 # Index that goes over the rows
+    for line in lines:
+        Ncomp = fit.model_parameters_df[fit.model_parameters_df['Line Name'] == line][
+            'Component'].max()
+        for j in range(Ncomp):
+            results_dict.loc[r, 'Line Name'] = line
+            results_dict.loc[r, 'Component'] = j+1
+            model = models[r]
+            results_dict.loc[r,'Model'] = model
+            # Extracting parameters:s
+            # Centroid:
+            centroid = theta_max[param_start + j * 3]
+            err_centroid = theta_errors[param_start + j * 3]
+            # Amplitude:
+            amplitude = theta_max[param_start + j * 3 + 1]
+            err_amplitude = theta_errors[param_start + j * 3 + 1]
+
+            # Sigma and Gamma:
+            if models[r] == 'Gaussian':
+                pn = 3
+                sigma = theta_max[param_start + j * 3 + 2]
+                err_sigma = theta_errors[param_start + j * 3 + 2]
+                gamma = np.nan
+                err_gamma = np.nan
+            elif models[r] == 'Lorentzian':
+                pn = 3
+                gamma = theta_max[param_start + j * 3 + 2]
+                err_gamma = theta_errors[param_start + j * 3 + 2]
+                sigma = np.nan
+                err_sigma = np.nan
+            elif models[r] == 'Voigt':
+                pn = 4
+                sigma = theta_max[param_start + j * 3 + 2]
+                gamma = theta_max[param_start + j * 3 + 3]
+                err_sigma = theta_errors[param_start + j * 3 + 2]
+                err_gamma = theta_errors[param_start + j * 3 + 3]
+
+            sigma_kms = spm.vel_correct(sigma, centroid)
+            gamma_kms = spm.vel_correct(gamma, centroid)
+            err_sigma_kms = spm.vel_correct(err_sigma, centroid)
+            err_gamma_kms = spm.vel_correct(err_gamma, centroid)
+
+            # Appending results:
+            results_dict.loc[r, 'Centroid'] = centroid
+            results_dict.loc[r, 'Amplitude'] = amplitude
+            results_dict.loc[r, 'Sigma'] = sigma
+            results_dict.loc[r, 'Sigma (km/s)'] = sigma_kms
+            results_dict.loc[r, 'Gamma'] = gamma
+            results_dict.loc[r, 'Gamma (km/s)'] = gamma_kms
+            results_dict.loc[r, 'err_Centroid'] = err_centroid
+            results_dict.loc[r, 'err_Amplitude'] = err_amplitude
+            results_dict.loc[r, 'err_Sigma'] = err_sigma
+            results_dict.loc[r, 'err_Sigma (km/s)'] = err_sigma_kms
+            results_dict.loc[r, 'err_Gamma'] = err_gamma
+            results_dict.loc[r, 'err_Gamma (km/s)'] = err_gamma_kms
+
+            r += 1
+
+        params_per_line = pn * Ncomp
+        param_start += params_per_line
+
+    # Assume goodness is a dictionary containing some goodness-of-fit results
+    goodness0 = [value for value in goodness.values()]
+
+    # Append the continuum and goodness of fit results:
+    results_dict['Continuum'] = np.full(len(results_dict), np.nan)
+    results_dict['Goodness'] = np.full(len(results_dict), np.nan)
+
+    # Correct the length check and assignment:
+    results_dict.iloc[:len(goodness0), results_dict.columns.get_loc('Goodness')] = goodness0
+
+    # Assigning the continuum similarly:
+    results_dict.iloc[:len(continuum), results_dict.columns.get_loc('Continuum')] = continuum
+
+    tab = pd.DataFrame(results_dict)
+    tab.to_csv(filename, index=False)
 

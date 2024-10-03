@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import emcee
-import spl_models as spm  # Importing the models
+import spl_models as spm  # Importing the analytical models
 
 def spectral_model_emcee(theta, x, models, continuum):
     # We will go throughout theta in terms of the single distributions for the emissions
@@ -111,7 +111,6 @@ def goodness_of_fit(theta, x, y, dy, models, continuum):
 
 def emcee_sampler(theta0, nwalkers, niter, args):
     ndim = len(theta0[0])
-    print('ndim inside sampler', ndim)
     sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior, args=args)
         # moves=[
         # (emcee.moves.DEMove(), 0.8),
@@ -145,7 +144,6 @@ def results_df(dfparams_init, theta_max, theta_errors, continuum):
     # Populate the dictionary with the results
     param_start = 0
     lines_groups = dfparams_init.groupby('Line Name')
-    print(lines_groups)
     for line, df in lines_groups:
         linedf = df.reset_index(drop=True)
         Ncomp = len(linedf)
@@ -180,7 +178,6 @@ def run_mcmc_chains(dfparams, x, y, dy, save_complete_chains=False, savefile=Non
     components = dfparams.groupby('Line Name')['Component'].max()
     models = dfparams['Model'].values
     continuum = dfparams['Parameters'][dfparams['Line Name'] == 'Continuum']
-    print('This continuum', continuum)
     p0 = np.concatenate(dfparams['Parameters'].values)
     # print('This p0', p0)
 
@@ -222,7 +219,7 @@ def run_mcmc_chains(dfparams, x, y, dy, save_complete_chains=False, savefile=Non
     model_parameters_df = results_df(dfparams, theta_max, theta_errors, continuum)
     print("Successful! Convergence found.")
 
-    return model_parameters_df, theta_max
+    return model_parameters_df, theta_max, theta_errors
 
 class mcmc_fit(object):
     '''
@@ -230,19 +227,20 @@ class mcmc_fit(object):
     '''
     def __init__(self, dfparams, x, y, dy, save_complete_chains=False, savefile=None, niter=1000):
         self.dfparams = dfparams
-        self.continuum = dfparams['Parameters'][dfparams['Line Name'] == 'Continuum']
+        self.continuum = dfparams['Parameters'].loc[dfparams['Line Name'] == 'Continuum'].values[0]
         self.x = x
         self.y = y
         self.dy = dy
         self.save_complete_chains = save_complete_chains
         self.savefile = savefile
         self.niter = niter
-        self.model_parameters_df, self.theta_max = run_mcmc_chains(self.dfparams, self.x, self.y,
+        self.model_parameters_df, self.fit_parameters, self.fit_errors = run_mcmc_chains(
+            self.dfparams, self.x, self.y,
                                                                    self.dy,
                                                                    self.save_complete_chains,
                                                                    self.savefile, self.niter)
         self.models = self.model_parameters_df['Model'].values
-        self.goodness = goodness_of_fit(self.theta_max, self.x, self.y, self.dy, self.models,
+        self.goodness = goodness_of_fit(self.fit_parameters, self.x, self.y, self.dy, self.models,
                                         self.continuum)
 
 

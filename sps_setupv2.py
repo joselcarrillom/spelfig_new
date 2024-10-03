@@ -2,6 +2,7 @@
 This is the script containing the functions to set up properly the data for the spelfig fitting
 methods.
 '''
+import os
 import random
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,7 +15,238 @@ from scipy.optimize import curve_fit
 import spl_models as spm
 
 # Set up the lines initial dataframes:
-def analyze_emission_lines(x, y, lines_dict, window=10.):
+
+# EXTRACTION AND CORRECTION: ======================================================================
+# The following functions execute the extraction and redshift correction
+def extract_astronomical_data(filename, verbose=True, wavelength_name=None, flux_name=None,
+                              error_name=None):
+    """
+    Extracts wavelength, flux, and error (when applicable) from a FITS file,
+    handling variations in keyword syntax and layout across surveys.
+
+    Params:
+
+
+    Future edits: Add dictionary of keywords from public data surveys? Or maybe a dictionary where user
+    just has to define what survey it's from? If keyword not found and user knows keyword, maybe change
+    function to have the option to add keyword? Possibly add 3D - 1D data analysis
+    """
+
+    try:
+        with fits.open(filename) as hdul:
+
+            # Search for keywords
+            potential_keywords = ['wavelength', 'WAVE', 'lambda']
+            for keyword in potential_keywords:
+                if keyword in hdul[1].columns.names:
+                    wavelength_name = keyword
+                    break
+
+            potential_keywords = ['flux', 'FLUX', 'f_lambda', 'flux_lines', 'total flux']
+            for keyword in potential_keywords:
+                if keyword in hdul[1].columns.names:
+                    flux_name = keyword
+                    break
+
+            potential_keywords = ['error', 'ERR', 'flux_error', 'ERR_FLUX', 'flux error']
+            for keyword in potential_keywords:
+                if keyword in hdul[1].columns.names:
+                    error_name = keyword
+                    break
+
+            # Define arrays
+            if wavelength_name:
+                wave = hdul[1].data[wavelength_name]
+            else:
+                if verbose:
+                    print("Warning: Keyword for wavelength not found.")
+                pass
+
+            if flux_name:
+                flux = hdul[1].data[flux_name]
+            else:
+                if verbose:
+                    print("Warning: Keyword for flux not found.")
+                pass
+
+            if error_name:
+                err = hdul[1].data[error_name]
+            else:
+                if verbose:
+                    print("Warning: Keyword for error not found.")
+                pass
+
+            # Create spectra with same form as Jose Luis
+
+            wave = extract_data(wave)
+            flux = extract_data(flux)
+            err = extract_data(err)
+
+            spec = np.array([wave, flux, err]).T
+
+
+    except KeyError:
+        if verbose:
+            print("Warning: Keywords not found in file.")
+        pass
+    return spec
+
+def calculate_redshift(spectrum, emission_lines):
+    wavelength = spectrum[:, 0]
+    flux = spectrum[:, 1]
+    errors = spectrum[:, 2]
+
+    # Find emission line peaks
+    peaks, _ = find_peaks(flux / max(flux), height=0.4)  # ADJUST
+    wavepeaks = np.array(wavelength[peaks])
+
+    # Generate a grid of redshifts
+    redshifts = np.arange(0, 3.5, 0.01)
+
+    # Calculate chi-squared values for each redshift
+    chi_squared_values = []
+
+    for redshift in redshifts:
+
+        # Deredshift the spectrum
+        deredshifted_wavelengths = wavepeaks / (1 + redshift)
+
+        # Calculate chi-squared for each emission line
+        chi_squared_line = []
+
+        for line in emission_lines:
+            # Define emission line
+            rest_wavelength = emission_lines[line]['wavelength'][0]
+
+            # Find the index of the closest value in the array
+            closest_index = np.argmin(np.abs(deredshifted_wavelengths - rest_wavelength))
+
+            # Get the closest value and the difference
+            closest_value = deredshifted_wavelengths[closest_index]
+            difference = np.abs(closest_value - rest_wavelength)
+
+            chi_squared_line.append(difference)
+
+        # Calculate total chi-squared for the redshift
+        chi_squared_total = np.sum(chi_squared_line)
+        chi_squared_values.append(chi_squared_total)
+
+    # Find the redshift with the minimum chi-squared value
+    best_redshift_index = np.argmin(chi_squared_values)
+    best_redshift = redshifts[best_redshift_index]
+    best_chi_squared = chi_squared_values[best_redshift_index]
+
+    deredshifted_wavelengths1 = wavelength / (1 + best_redshift)
+
+    return best_redshift, best_chi_squared
+
+
+def extract_snr(spectrum, redshift, line=None):
+    wavelength = spectrum[:, 0] / (1 + redshift)
+    flux = spectrum[:, 1]
+    errors = spectrum[:, 2]
+
+    # Select which line from the emission lines to use
+    rest_wavelength = SNR_emission_lines[line]['wavelength'][0] if line is not None else \
+    SNR_emission_lines['O-III,0']['wavelength'][0]
+
+    # Identify the correct peaks
+    lower_bound = rest_wavelength - 30
+    upper_bound = rest_wavelength + 30
+    mask = (wavelength >= lower_bound) & (wavelength <= upper_bound)
+    window_flux = flux[mask]
+    window_wavelengths = wavelength[mask]
+
+    peaks, _ = find_peaks(window_flux, prominence=0.5)
+    closest_peak_idx = None
+    min_diff = float('inf')
+
+    for peak_idx in peaks:
+
+        observed_wavelength = window_wavelengths[peak_idx]
+        diff = abs(observed_wavelength - rest_wavelength)
+
+        if diff < min_diff:
+            min_diff = diff
+            closest_peak_idx = peak_idx
+
+    if closest_peak_idx is not None:
+        peak_flux = window_flux[peak_idx]
+
+    else:
+        print("Closest peak index not found for line:", line)
+
+    # Define continuum
+
+    continuum_mask = (wavelength >= lower_bound) & (wavelength <= upper_bound)
+    continuum_data = flux[continuum_mask]
+    continuum_wavelengths = wavelength[continuum_mask]
+
+    continuum_fit = np.polyfit(continuum_wavelengths, continuum_data, deg=1)
+    continuum_model = np.polyval(continuum_fit, continuum_wavelengths)
+
+    local_std = np.std(continuum_model)
+    local_mean = np.mean(continuum_model)
+
+    # Define SNR
+    snr = (peak_flux - local_mean) / local_std if local_std > 0 else print('huh')
+    print('SNR is ', snr)
+
+    return snr
+
+def spectra_extractor(directory):
+    '''
+    :param directory: This is the directory where the fits files are.
+    :return:
+
+    Notes:
+    This is the final function that will extract single spectra from a directory, apply all the
+    set ups, and then return a dictionary with all the information. The format is such that we
+    will have a dictionary of dictionaries, so that the main "key" is the object's ID, and then
+    its item is a subdictionary with all the information we are interested in.
+    '''
+    spec_dict = {}
+    for file in os.listdir(directory):
+        filename = os.fsdecode(file)
+        if filename.endswith(".fits"):  # filename.startswith("manga") and
+            print(os.path.join(directory, filename))
+            full_dir = os.path.join(directory, filename)
+
+            # We store the information in an individual dictionary per object:
+            dict = {
+                'SPECTRA': [],
+                'SNR': [],
+                'REDSHIFT': []
+            }
+
+            # spectra
+            data = extract_astronomical_data(full_dir)
+            dict['SPECTRA'].append(data)
+
+            # redshift
+            redshift, _ = calculate_redshift(data, SNR_emission_lines)
+            dict['REDSHIFT'].append(redshift)
+
+            # snr
+            try:
+                snr = extract_snr(data, redshift, line='O-III,0')
+                dict['SNR'].append(snr)
+            except:
+                print('UnboundLocalError')
+                dict['SNR'].append(0)
+
+            spec_dict[filename] = dict
+
+            continue
+        else:
+            continue
+
+    return spec_dict
+
+## EMISSION LINE PRELIMINARY ANALYSIS: =======================================================================
+## This part contains the functions
+
+def analyze_emission_lines(x, y, lines_dict, window=20.):
     '''
     Identify emission lines in a given observed spectrum and return the results.
     :param spectrum:
@@ -24,6 +256,10 @@ def analyze_emission_lines(x, y, lines_dict, window=10.):
     '''
     observed_wavelengths = x
     flux = y
+    # Sadly we have to still verify what is happening here
+    print('Complete data')
+    plt.plot(observed_wavelengths, flux)
+    plt.show()
 
     matched_lines = []
     results = []
@@ -34,15 +270,24 @@ def analyze_emission_lines(x, y, lines_dict, window=10.):
         synthetic_flux[:] = 0  # Set to zero or some baseline if entirely NaN
 
     continuum_mask = np.ones(len(flux), dtype=bool)
-
+    print('LETS REVIEW THE FIRST ANALYZING OF THE EMISSION LINES')
     for name, params in lines_dict.items():
         rest_wavelength = params['wavelength'][0]
+        print('This first reference wavelength', rest_wavelength)
         if rest_wavelength is not None:
             lower_bound = rest_wavelength - window
             upper_bound = rest_wavelength + window
             mask = (observed_wavelengths >= lower_bound) & (observed_wavelengths <= upper_bound)
             window_flux = flux[mask]
             window_wavelengths = observed_wavelengths[mask]
+
+            # Verify the window selection:
+            if window_wavelengths.size:
+                # No other option but plotting. What the heck is happening here?
+                # plt.plot(window_wavelengths, window_flux)
+                # plt.show()
+                print('len window_wavelengths', len(window_wavelengths))
+                print('This is the maximum flux inside the window', np.nanmax(window_flux))
 
             if not window_wavelengths.size:
                 continue
@@ -72,6 +317,8 @@ def analyze_emission_lines(x, y, lines_dict, window=10.):
                     'peak_flux': peak_flux,
                     'peak_idx': np.where(observed_wavelengths == observed_wavelength)[0][0]
                 })
+
+    print('This the lines identified in the first place: ', matched_lines)
 
     # Update continuum mask and calculate synthetic data for gaps
     for line in matched_lines:
@@ -190,9 +437,12 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
     emlines = emlines_dict.keys()
     for line in filtered_linelist:
         line_name = line['name']
-        components = emlines_dict[line_name]['components']
+        components = [emlines_dict[line_name]['components']]
+        print('components', components)
         Ncomp = len(components)
         for j, component in enumerate(components):
+            print('This is COMPONENT VERIFICATION')
+            print(component)
             if component == 'Voigt':
                 params_i = [line['wavelength'], line['max_flux']/Ncomp, line['sigma'],
                             1.11*line['sigma']]
@@ -214,6 +464,15 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
             min_limits.append(min_i)
             max_limits.append(max_i)
 
+    dfparams = pd.DataFrame({
+        'Line Name': line_names,
+        'Model': models,  # Initial components set to 1
+        'Component': ncomp,
+        'Parameters': parameters,
+        'Max Limits': max_limits,  # Using max_flux as initial guess for amplitude': sigmas,
+        'Min Limits': min_limits,
+    })
+
     if continuum_pars is not None:
         print('Appending continuum')
         print(continuum_pars)
@@ -223,15 +482,6 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
         ncomp.append(0)
         min_limits.append([-np.inf, 0, -np.inf])
         max_limits.append([np.inf, np.inf, np.inf])
-
-    dfparams = pd.DataFrame({
-        'Line Name': line_names,
-        'Model': models,  # Initial components set to 1
-        'Component': ncomp,
-        'Parameters': parameters,
-        'Max Limits': max_limits,  # Using max_flux as initial guess for amplitude': sigmas,
-        'Min Limits': min_limits,
-    })
 
     return dfparams
 
@@ -259,14 +509,126 @@ def init_setup(spectrum, emlines_dict, wavelength_range, gamma_init):
 
     # Filter the list of lines present in the spectrum:
     linelist0 = filter_and_prepare_linelist(lines_init, continuum0, wavelength_range, snr_cont)
+    print('This first linelist', linelist0)
 
     # Create an initial parameters dataframe:
     dfparams = initial_dataframe(emlines_dict, linelist0, continuum_pars=continuum_pars)
 
     return dfparams
 
+# MULTICOMPONENT: ============================================================
+# Functions to increase the number of components in the model:
 
-# Plotting function:   --------------
+def minmaxlim(df):
+  min_limits = []
+  max_limits = []
+
+  for index, row in df.iterrows():
+
+      # Definitions
+      # standard deviation
+      sigma = row['Parameters'][2]
+      minsig = 2.0
+      maxsig = 1.5 * sigma
+      # wavelength
+      line_wavelength = row['Parameters'][0]
+      min_line = line_wavelength - 2 * sigma
+      max_line = line_wavelength + 2 * sigma
+      # amplitude
+      amplitude = row['Parameters'][1]
+      # components
+      ncomp = row['Component']
+
+      # Adjust maximum amplitude based on component number
+      # for the first component (which can have more than one or just one component afterwards)
+      if ncomp == 1:
+          # if there are multiple components for this line
+          if df[df['Line Name'] == row['Line Name']].shape[0] > 1:
+              amplitude_factor = 2
+          else:
+              amplitude_factor = 1
+      # for the second component
+      elif ncomp == 2:
+          amplitude_factor = 2
+      # for every other component
+      else:
+          amplitude_factor = 2**(ncomp-1)
+
+      # Calculate Limits
+      if row['Model'] == 'Gaussian':
+          max_i = [max_line, amplitude * amplitude_factor, maxsig]
+          min_i = [min_line, 0.                          , minsig]
+
+      elif row['Model'] == 'Lorentzian':
+          max_i = [max_line, amplitude * amplitude_factor, 1.11*maxsig]
+          min_i = [min_line, 0.                          , 1.11*minsig]
+
+      elif row['Model'] == 'Voigt':
+          max_i = [max_line, amplitude * amplitude_factor, maxsig, 1.11*maxsig]
+          min_i = [min_line, 0.                          , minsig, 1.11*minsig]
+
+      elif row['Model'] == 'Continuum':
+          max_i = [np.inf, np.inf, np.inf]
+          min_i = [-np.inf, 0    , -np.inf]
+      else:
+          print("Model not defined.")
+
+      min_limits.append(min_i)
+      max_limits.append(max_i)
+
+  return min_limits, max_limits
+
+def update_components(dfparams, additional_components_dict):
+    '''
+    This function takes a dataframe of a given emission line spectral model and
+    updates it with additional components, in consistency with the lines specified
+    in the additional_components_dict.
+
+    dfparams: output of earlier mcmc runs
+    additional_components_dict: a dictionary of the components to be added
+    num: number of iterations to run the mcmc chains
+    '''
+
+    # Create a copy of the input dataframe to avoid modifying the original
+    updated_df = dfparams.copy()
+
+    # Remove error column
+    updated_df = updated_df.drop(['Parameter Errors'], axis=1)
+
+    # Iterate over the additional components dictionary
+
+    for line, components in additional_components_dict.items():
+      if (line in updated_df['Line Name'].values):
+        print("Adding a {} component for {}".format(components[0], line))
+
+        # Find the last instance of the element
+        last_index = updated_df[updated_df['Line Name'] == line].index[-1]
+        # Add a new component
+        new_component_number = updated_df.loc[last_index, 'Component'] + 1
+
+        # Copy the same parameters, updating the initial amplitude guess
+        new_parameters = updated_df.loc[last_index, 'Parameters']
+        new_parameters = [new_parameters[0], new_parameters[1]/2, new_parameters[2]]
+
+        new_row = {'Line Name': line, 'Component': new_component_number, 'Model': components[0], 'Parameters': new_parameters}
+        updated_df = pd.concat([updated_df[:last_index + 1], pd.DataFrame([new_row]), updated_df[last_index + 1:]], ignore_index=True)
+
+      else:
+        print(f"{line} not found in the Spectrum.")
+
+    # Calculate limits
+
+    min_limits, max_limits = minmaxlim(updated_df)
+
+    updated_df['Max Limits'] = pd.Series(max_limits)
+    updated_df['Min Limits'] = pd.Series(min_limits)
+
+    # Return updateed dataframe
+
+    return updated_df
+
+
+# PLOTTING FUNCTION:   ==============================================================
 
 def spl_plot(x, y, dy, dfparams, x_zoom=None, y_zoom=None, goodness_marks=None):
     # Extract data from the DataFrame

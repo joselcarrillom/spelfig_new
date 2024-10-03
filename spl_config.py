@@ -11,7 +11,7 @@ at the spectra. Not necessary in all of them.
 # HERE: SPECIFY THE INPUT DIRECTORY in the case is other different from the default.
 
 inputdir = None
-
+resdir = None
 
 EMISSION_LINES = {
 	'He-II,1': {'wavelength':[3202.15], 'components':['Gaussian']},
@@ -51,8 +51,6 @@ EMISSION_LINES = {
 	'C III': {'wavelength': [2326.00], 'components':['Gaussian']},
 	'Mg II': {'wavelength': [3346.79], 'components':['Gaussian']},
 }
-
-
 
 INITIAL_CONDITIONS = {
 	"powerlaw function": {"gamma": -0.01},

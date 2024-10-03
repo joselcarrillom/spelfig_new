@@ -6,12 +6,20 @@ import spl_fitters as spf
 
 mcfit = spf.mcmc_fit
 
+spectradict = None # IMPORT HERE THE SUPER DICTIONARY FROM AKSITA'S MODULES:
+
 # Extracting important variables: ------------------------------------------------------------------
 inputdir0 = spc.inputdir
+resdir0 = spc.resdir
+
 
 # Getting the input directory with all the spectra to be fitted:
 inputdir = inputdir0 if inputdir0 is not None else os.getcwd()+'/spl_input/'
+resdir = resdir0 if resdir0 is not None else os.getcwd()+'/spl_output/'
 
+# Create the output directory if it doesn't exist:
+if not os.path.exists(resdir):
+    os.mkdir(resdir)
 
 # Initializing the process by extracting the spectra and redshift make a redshift correction if
 # necessary: ---------------------------------------------------------------------------------------
@@ -114,12 +122,10 @@ def single_fit(spectrum, emission_lines, redshift, initial_conditions, specrange
         print("Error occurred during setup. Skipping...")
         df0 = np.empty(0)
 
-    print('This initial dataframe')
-    print(df0)
+
     ## Run a first plot with the baseline model:
     print('Fitting model with just one model...')
     fit0 = mcfit(df0, x, y, dy, niter=niter)
-    print('After first fit')
     
     ## Extract the goodness of fit:
     goodness0 = fit0.goodness
@@ -133,6 +139,7 @@ def single_fit(spectrum, emission_lines, redshift, initial_conditions, specrange
     i = 0
     fit_final = fit0
     while (diff_bic > bic_cut or chi2 > chi_cut) and i < len(extra_component_lists):
+
         print('Testing increasing number of components...')
         newdf = sps.update_components(df0, extra_component_lists[i])
         newfit = mcfit(newdf, x, y, dy, niter=niter)
@@ -151,26 +158,6 @@ def single_fit(spectrum, emission_lines, redshift, initial_conditions, specrange
         i += 1
     return fit_final
 
-'''
-# TEST TO VERIFY THE SINGLE SPECTRUM FIT:
-import numpy as np
-from astropy.io import fits
-
-specfile = 'manga-7815-6104_Reff_spec.fits'
-dir = os.getcwd()
-hdu = fits.open(dir+'/spl_input/'+specfile)
-spectra = hdu[1].data
-spec = np.array([spectra['wavelength'], spectra['emlines'], spectra['flux_error']]).T
-
-redshift = 0.07971366494894028
-specrange = [4800, 6800]
-
-
-test1 = single_fit(spec, emlines, redshift, initial_conditions, specrange)
-
-print('Test for single fit: DONE')
-'''
-
 def multiple_spectra_fitting(superdict, emlines, initial_conditions, specrange):
     # Extract the ID's list:
     IDS = superdict.keys()
@@ -179,95 +166,81 @@ def multiple_spectra_fitting(superdict, emlines, initial_conditions, specrange):
     for ID in IDS:
         spectrum = superdict[ID]['SPECTRUM']
         redshift = superdict[ID]['REDSHIFT']
+        print(f'>>>>>   Executing cycle of fits for object: {ID}   <<<<<')
         fit = single_fit(spectrum, emlines, redshift, initial_conditions, specrange)
         # Store the fit in the dictionary:
-        superdict[ID]['BEST FIT'] = fit.model_parameters_df
-        superdict[ID]['BEST FIT CHI2'] = fit.goodness['reduced chi squared']
-        superdict[ID]['BEST FIT BIC'] = fit.goodness['BIC']
+        superdict[ID]['BEST FIT'] = fit
+    return superdict
+
+def file_saver(superdict, savefitfiles=True, saveplotfiles=True, plotranges=None):
+    # Extract the ID's list:
+    IDS = superdict.keys()
+
+    for ID in IDS:
+        # Create filename:
+        fitfilename = resdir + ID + '_parfile.csv'
+        plotfilename = resdir + ID + '_fitplot.png'
+        # Extract the fit:
+        fit = superdict[ID]['BEST FIT']
+
+        # Save the fit:
+        if savefitfiles is True:
+            sps.spl_savefile(fit, fitfilename)
+        # Save the plot:
+        if saveplotfiles is True:
+            # Extract the data:
+            x = superdict[ID]['SPECTRUM'][:, 0]
+            y = superdict[ID]['SPECTRUM'][:, 1]
+            dy = superdict[ID]['SPECTRUM'][:, 2]
+            dfparams = fit.model_parameters_df
+            if plotranges:
+                x_zoom = plotranges[0]
+                y_zoom = plotranges[1]
+            else:
+                x_zoom = None
+                y_zoom = None
+            spl_fig = sps.spl_plot(x, y, dy, dfparams, x_zoom=x_zoom, y_zoom=y_zoom,
+                            goodness_marks=fit.goodness)
+            spl_fig.savefig(plotfilename, format = 'png', dpi=400, bbox_inches='tight')
 
 
-def save_and_plot(superdict, saveflags):
-    pass
+###  EXAMPLE DICTIONARY TO TEST THE CODE: **************************************
 
-'''
-def lines_df_toprint(resdfparams):
+### IN CASE NO DICTIONARY IS PROVIDED, THE CODE WILL EXECUTE THIS PART WHICH IS THE EXAMPLE TEST
+if spectradict is None:
+    from astropy.io import fits
+    import re
 
-    # Create a dictionary to store the results
-    results_dict = {
-        'Line Name': [],
-        'Model': [],
-        'Component': [],
-        'Centroid': [],
-        'Amplitude': [],
-        'Sigma': [],
-        'Gamma': [],
-        'err_Centroid': [],
-        'err_Amplitude': [],
-        'err_Sigma': [],
-        'err_Gamma': [],
-    }
+    specfiles = ['manga-7815-6104_Reff_spec.fits',
+    'manga-7978-12705_Reff_spec.fits',
+    'manga-8089-12705_Reff_spec.fits']
 
-    # Populate the dictionary with the results
-    param_start = 0
-    for i, line in enumerate(lines):
-        Ncomp = components[i]
-        for j in range(Ncomp):
-            results_dict['Line Name'].append(line)
-            results_dict['Component'].append(j)
-            models[j] = models[param_start + j]
-            results_dict['Model'].append(models[j])
-            # Extracting parameters:
-            # Centroid:
-            centroid = theta_max[param_start + j * 3]
-            err_centroid = theta_errors[param_start + j * 3]
-            # Amplitude:
-            amplitude = theta_max[param_start + j * 3 + 1]
-            err_amplitude = theta_errors[param_start + j * 3 + 1]
+    # Extract the correct ID from the file names:
+    # Regular expression pattern for MaNGA data:
+    pattern = r'(manga-\d+-\d+)'
 
-            # Sigma and Gamma:
-            if models[j] == 'Gaussian':
-                pn = 3
-                sigma = theta_max[param_start + j * 3 + 2]
-                err_sigma = theta_errors[param_start + j * 3 + 2]
-                gamma = np.nan
-                err_gamma = np.nan
-            elif models[j] == 'Lorentzian':
-                pn = 3
-                gamma = theta_max[param_start + j * 3 + 2]
-                err_gamma = theta_errors[param_start + j * 3 + 2]
-                sigma = np.nan
-                err_sigma = np.nan
-            elif models[j] == 'Voigt':
-                pn = 4
-                sigma = theta_max[param_start + j * 3 + 2]
-                gamma = theta_max[param_start + j * 3 + 3]
-                err_sigma = theta_errors[param_start + j * 3 + 2]
-                err_gamma = theta_errors[param_start + j * 3 + 3]
+    # Extract the pattern from each filename
+    ids = [re.search(pattern, filename).group(1) for filename in specfiles]
 
-            sigma_kms = spm.vel_correct(sigma, centroid)
-            gamma_kms = spm.vel_correct(gamma, centroid)
-            err_sigma_kms = spm.vel_correct(err_sigma, centroid)
-            err_gamma_kms = spm.vel_correct(err_gamma, centroid)
+    dir = os.getcwd()
+    specrange = [4800, 6800]
+    plotrange = ([6500, 6800], None)
 
-            # Appending results:
-            results_dict['Centroid'].append(centroid)
-            results_dict['Amplitude'].append(amplitude)
-            results_dict['Sigma'].append(sigma)
-            results_dict['Sigma (km/s)'].append(sigma_kms)
-            results_dict['Gamma'].append(gamma)
-            results_dict['Gamma (km/s)'].append(gamma_kms)
-            results_dict['err_Centroid'].append(err_centroid)
-            results_dict['err_Amplitude'].append(err_amplitude)
-            results_dict['err_Sigma'].append(err_sigma)
-            results_dict['err_Sigma (km/s)'].append(err_sigma_kms)
-            results_dict['err_Gamma'].append(err_gamma)
-            results_dict['err_Gamma (km/s)'].append(err_gamma_kms)
+    # Build the dictionary:
+    superdict_test = {}
 
-        params_per_line = pn * Ncomp
-        param_start += params_per_line
+    for i, specfile in enumerate(specfiles):
+        id = ids[i]
+        hdu = fits.open(dir+'/spl_test_example/'+specfile)
+        spectra = hdu[1].data
+        spec = np.array([spectra['wavelength'], spectra['emlines'], spectra['flux_error']]).T
+        redshift = hdu[1].header['Z']
+        superdict_test[id] = {'SPECTRUM': spec, 'REDSHIFT': redshift}
 
-    return pd.DataFrame(results_dict)
- '''
-
+    print('>>>>   Executing the fits on the example data set   <<<<<')
+    superdict_test = multiple_spectra_fitting(superdict_test, emlines, initial_conditions, specrange)
+    print('>>>>  Producing the plots and parameter files for the example data set   <<<<<')
+    file_saver(superdict_test, savefitfiles=True, saveplotfiles=True, plotranges=plotrange)
+    print('Test example done!')
 
 
