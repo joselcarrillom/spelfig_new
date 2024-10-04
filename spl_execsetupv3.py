@@ -8,6 +8,7 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 from scipy.signal import find_peaks
 from astropy.io import fits
 from astropy.nddata import StdDevUncertainty
@@ -147,7 +148,99 @@ SNR_emission_lines = {
     'Ar-III':   {'wavelength':[7135.67]},
     }
 
-# Initialise template data
+def analyze_emission_lines(x, y, lines_dict, window=20.):
+
+    observed_wavelengths = x
+    flux = y
+
+    matched_lines = []
+    synthetic_flux = np.copy(flux)  # This maintains the original 1D flux array structure
+
+    # Ensure the synthetic_flux initialization doesn't start with NaN values
+    if np.isnan(synthetic_flux).all():
+        synthetic_flux[:] = 0  # Set to zero or some baseline if entirely NaN
+
+    for name, params in lines_dict.items():
+        rest_wavelength = params['wavelength'][0]
+        if rest_wavelength is not None:
+            lower_bound = rest_wavelength - window
+            upper_bound = rest_wavelength + window
+            mask = (observed_wavelengths >= lower_bound) & (observed_wavelengths <= upper_bound)
+            window_flux = flux[mask]
+            window_wavelengths = observed_wavelengths[mask]
+
+            peaks, _ = find_peaks(window_flux, prominence=0.5)
+            closest_peak_idx = None
+            min_diff = float('inf')
+
+            for peak_idx in peaks:
+
+                observed_wavelength = window_wavelengths[peak_idx]
+                diff = abs(observed_wavelength - rest_wavelength)
+
+                if diff < min_diff:
+                    min_diff = diff
+                    closest_peak_idx = peak_idx
+
+            if closest_peak_idx is not None:
+                peak_flux = window_flux[closest_peak_idx]
+                observed_wavelength = window_wavelengths[closest_peak_idx]
+                matched_lines.append({
+                    'line': name,
+                    'restframe_wavelength': rest_wavelength,
+                    'observed_wavelength': observed_wavelength,
+                    'peak_flux': peak_flux,
+                    'peak_idx': np.where(observed_wavelengths == observed_wavelength)[0][0]
+                })
+
+    return matched_lines
+
+# Signal-to-noise ratio
+def extract_redshift_snr(spectrum, redshift, line=None):
+
+    """
+    This function calculates the S-N ratio of a single emission line in a spectra
+
+    Args:
+        spectrum (np.ndarray): A 2D NumPy array containing the observed spectrum data.
+        redshift (float): The calculated redshift of the observed spectrum.
+        line (str, optional): A line to extract SNR from, based on the dictionary SNR_emission_lines. Default is O-III.
+
+    Returns:
+        float: The S-N ratio of the observed spectrum.
+
+    """
+
+    wavelength = spectrum[:, 0]/(1+redshift)
+    flux = (spectrum[:, 1])
+    norm_flux = flux/max(flux)
+    errors = spectrum[:, 2]
+
+    # Select which line from the emission lines to use
+    rest_wavelength = SNR_emission_lines[line]['wavelength'][0] if line is not None else SNR_emission_lines['O-III,0']['wavelength'][0]
+
+    # peak_flux = emission_identify(rest_wavelength, wavelength, flux)
+
+    # Define continuum
+
+    continuum_mask = (wavelength >= 5050) & (wavelength <= 5150)
+    continuum_data = norm_flux[continuum_mask]
+    continuum_wavelengths = wavelength[continuum_mask]
+
+    continuum_fit = np.polyfit(continuum_wavelengths, continuum_data, deg=1)
+    continuum_model = np.polyval(continuum_fit, continuum_wavelengths)
+
+    continuum_snr = np.std(continuum_model)
+    continuum_mean = np.mean(continuum_model)
+
+    # Define SNR
+    # snr = (peak_flux - continuum_mean) / continuum_snr if continuum_snr > 0 else print('')
+
+    matched_lines = analyze_emission_lines(wavelength, norm_flux, SNR_emission_lines)
+
+    return continuum_snr, matched_lines
+
+# Initialise Templates
 def initialise_templates(dir):
 
     '''
@@ -181,8 +274,8 @@ def initialise_templates(dir):
 
     return template_spectra
 
-# Redshift function
-def redshift_calc(spectrum, template_spectra, Plot=False):
+# Calculate redshift
+def redshift_calcu(spectrum, template_spectra, filename, Plot=False, user_template=None):
     """
     This function calculates the redshift of an observed spectrum by comparing it to a set of template spectra.
 
@@ -193,19 +286,38 @@ def redshift_calc(spectrum, template_spectra, Plot=False):
             - spectrum[:, 2]: Errors in flux (Jy)
         template_spectra (list): A list of `specutils.Spectrum1D` objects representing the template spectra.
         Plot (bool, optional): If True, creates a plot comparing the observed and redshifted spectra. Default is False.
+        user_template (str, optional): Name of a specific template to use. Overrides other selection methods.
 
     Returns:
         float: The estimated redshift of the observed spectrum.
     """
+
     wavelength = spectrum[:, 0]
     fluxes = spectrum[:, 1]
     errors = spectrum[:, 2]
 
     spec_data = Spectrum1D(flux=fluxes * u.Jy, spectral_axis=wavelength * u.Angstrom,
-                               uncertainty=StdDevUncertainty(errors), unit='Jy')
+                           uncertainty=StdDevUncertainty(errors), unit='Jy')
     redshift_range = np.arange(0.00, 2.49, 0.01)
 
-    _, redshiftspec, _, _, _ = template_match(spec_data, template_spectra, redshift=redshift_range)
+    print(filename)
+
+    if user_template is None:
+        selected_templates = []
+        if 'manga' in filename.lower() or 'magpi' in filename.lower():
+            selected_templates = [template_spectra[0]]
+        elif 'paqs' in filename.lower():
+            selected_templates = [template_spectra[1]]
+        if not selected_templates:
+            selected_templates = [template_spectra[0]]  # Default to first templates
+
+    # Template selection based on user input (overrides filename keywords)
+    elif user_template:
+        selected_templates = [t for t in template_spectra if t.meta['name'] == user_template]
+        if not selected_templates:
+            raise ValueError(f"Template '{user_template}' not found in provided spectra")
+
+    _, redshiftspec, _, _, _ = template_match(spec_data, selected_templates, redshift=redshift_range)
 
     if Plot == True:
         plt.plot(wavelength, fluxes, label='observed', color='red', alpha=0.5)
@@ -224,94 +336,3 @@ def redshift_calc(spectrum, template_spectra, Plot=False):
         plt.show()
 
     return redshiftspec
-
-def emission_identify(rest_wavelength, wavelength, flux):
-    # Identify the correct peaks
-    print('WAVELENGTH ',rest_wavelength)
-    lower_bound = rest_wavelength - 30
-    upper_bound = rest_wavelength + 30
-    mask = (wavelength >= lower_bound) & (wavelength <= upper_bound)
-    window_flux = flux[mask]
-    window_wavelengths = wavelength[mask]
-
-    peaks, _ = find_peaks(window_flux, prominence=0.5)
-    closest_peak_idx = None
-    min_diff = float('inf')
-
-    for peak_idx in peaks:
-
-        observed_wavelength = window_wavelengths[peak_idx]
-        diff = abs(observed_wavelength - rest_wavelength)
-
-        if diff < min_diff:
-            min_diff = diff
-            closest_peak_idx = peak_idx
-
-    if closest_peak_idx is not None:
-        peak_flux = window_flux[peak_idx]
-
-    else:
-        peak_flux = 0
-
-    print('FLUX ', peak_flux)
-
-    return peak_flux
-
-# Signal-to-noise ratio
-def extract_snr(spectrum, redshift, line=None):
-
-    """
-    This function calculates the S-N ratio of a single emission line in a spectra
-
-    Args:
-        spectrum (np.ndarray): A 2D NumPy array containing the observed spectrum data.
-        redshift (float): The calculated redshift of the observed spectrum.
-        line (str, optional): A line to extract SNR from, based on the dictionary SNR_emission_lines. Default is O-III.
-
-    Returns:
-        float: The S-N ratio of the observed spectrum.
-
-    """
-
-    wavelength = spectrum[:, 0]/(1+redshift)
-    flux = spectrum[:, 1]
-    errors = spectrum[:, 2]
-
-    # Select which line from the emission lines to use
-    rest_wavelength = SNR_emission_lines[line]['wavelength'][0] if line is not None else SNR_emission_lines['O-III,0']['wavelength'][0]
-
-    peak_flux = emission_identify(rest_wavelength, wavelength, flux)
-
-    # Define continuum
-
-    continuum_mask = (wavelength >= 5050) & (wavelength <= 5150)
-    continuum_data = flux[continuum_mask]
-    continuum_wavelengths = wavelength[continuum_mask]
-
-    continuum_fit = np.polyfit(continuum_wavelengths, continuum_data, deg=1)
-    continuum_model = np.polyval(continuum_fit, continuum_wavelengths)
-
-    continuum_snr = np.std(continuum_model)
-    continuum_mean = np.mean(continuum_model)
-    print('CONT ', continuum_snr)
-
-    # Define SNR
-    snr = (peak_flux - continuum_mean) / continuum_snr if continuum_snr > 0 else print('')
-
-    # General SNR --> 5050-5150A ish
-
-    # Calculate for each emission line
-
-    identified_lines = []
-    for line_name, line_data in SNR_emission_lines.items():
-        for emline in line_data['wavelength']:
-            emline_snr = emission_identify(emline, wavelength, flux)
-            if emline_snr > 3*continuum_snr:
-                identified_lines.append(line_name)
-        # observed_wavelength = wavelength[peak_index]
-        # for line_name, line_data in SNR_emission_lines.items():
-        #     rest_wavelength = line_data['wavelength'][0]
-        #     if abs(observed_wavelength - rest_wavelength) < 30 and > continuum_snr:
-        #         identified_lines.append((line_name, observed_wavelength, rest_wavelength))
-
-    return continuum_snr, identified_lines
