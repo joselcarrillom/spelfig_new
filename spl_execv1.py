@@ -59,7 +59,7 @@ def spectrum_dictionary(directory,templates):
                     continue
 
             # add to dictionary
-            spec_dict[filename] = {'data': data, 'redshift': best_redshift, 'snr': realsnr, 'emission lines' : most_lines_dict}
+            spec_dict[filename] = {'DATA': data, 'REDSHIFT': best_redshift, 'SNR': realsnr, 'EMLINES' : most_lines_dict}
 
             continue
 

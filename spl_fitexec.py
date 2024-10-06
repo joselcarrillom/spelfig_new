@@ -177,7 +177,7 @@ def multiple_spectra_fitting(superdict, emlines, initial_conditions, specrange):
 
     # Perform the fitting:
     for ID in IDS:
-        spectrum = superdict[ID]['SPECTRUM']
+        spectrum = superdict[ID]['DATA']
         redshift = superdict[ID]['REDSHIFT']
         fit = single_fit(spectrum, emlines, redshift, initial_conditions, specrange)
         # Store the fit in the dictionary:
