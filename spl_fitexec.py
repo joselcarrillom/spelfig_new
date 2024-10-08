@@ -3,10 +3,11 @@ import numpy as np
 import sps_fitsetup as sps
 import spl_config as spc
 import spl_fitters as spf
+import spl_execv1 as spex
 
 mcfit = spf.mcmc_fit
 
-spectradict = None # IMPORT HERE THE SUPER DICTIONARY FROM AKSITA'S MODULES:
+spectradict = None
 
 # Extracting important variables: ------------------------------------------------------------------
 inputdir0 = spc.inputdir
