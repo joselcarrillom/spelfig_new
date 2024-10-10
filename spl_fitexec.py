@@ -7,16 +7,23 @@ import spl_execv1 as spex
 
 mcfit = spf.mcmc_fit
 
-spectradict = None
+
 
 # Extracting important variables: ------------------------------------------------------------------
 inputdir0 = spc.inputdir
 resdir0 = spc.resdir
-
-
 # Getting the input directory with all the spectra to be fitted:
 inputdir = inputdir0 if inputdir0 is not None else os.getcwd()+'/spl_input/'
 resdir = resdir0 if resdir0 is not None else os.getcwd()+'/spl_output/'
+
+# The directory with the templates:
+templates_dir = os.getcwd()+'/spl_ztemplates/'
+
+# Extract the files and ensemble the spectra dictionary:
+spectradict = spex.spectrum_dictionary(inputdir, templates_dir)
+
+# If you want to just run the example test, comment the line above and uncomment the line below:
+# spectradict = None
 
 # Create the output directory if it doesn't exist:
 if not os.path.exists(resdir):
@@ -168,9 +175,17 @@ def multiple_spectra_fitting(superdict, emlines, initial_conditions, specrange):
         spectrum = superdict[ID]['DATA']
         redshift = superdict[ID]['REDSHIFT']
         print(f'>>>>>   Executing cycle of fits for object: {ID}   <<<<<')
-        fit = single_fit(spectrum, emlines, redshift, initial_conditions, specrange)
+        print(f'>>>>>   Redshift: {redshift}   <<<<<')
+        try:
+            fit = single_fit(spectrum, emlines, redshift, initial_conditions, specrange)
+            superdict[ID]['BEST FIT'] = fit
+        except Exception as e:
+            print(f'Error occurred during the fitting of {ID}. Skipping...')
+            print(e)
+            superdict[ID]['BEST FIT'] = None
+
         # Store the fit in the dictionary:
-        superdict[ID]['BEST FIT'] = fit
+
     return superdict
 
 def file_saver(superdict, savefitfiles=True, saveplotfiles=True, plotranges=None):
@@ -185,28 +200,52 @@ def file_saver(superdict, savefitfiles=True, saveplotfiles=True, plotranges=None
         fit = superdict[ID]['BEST FIT']
 
         # Save the fit:
-        if savefitfiles is True:
-            sps.spl_savefile(fit, fitfilename)
-        # Save the plot:
-        if saveplotfiles is True:
-            # Extract the data:
-            x = superdict[ID]['SPECTRUM'][:, 0]
-            y = superdict[ID]['SPECTRUM'][:, 1]
-            dy = superdict[ID]['SPECTRUM'][:, 2]
-            dfparams = fit.model_parameters_df
-            if plotranges:
-                x_zoom = plotranges[0]
-                y_zoom = plotranges[1]
-            else:
-                x_zoom = None
-                y_zoom = None
-            spl_fig = sps.spl_plot(x, y, dy, dfparams, x_zoom=x_zoom, y_zoom=y_zoom,
+        if fit is not None:
+            print(f'This object: {ID}')
+            print('This fit')
+            print(fit.model_parameters_df)
+            if savefitfiles is True:
+                sps.spl_savefile(fit, fitfilename)
+            # Save the plot:
+            if saveplotfiles is True:
+                # Extract the data:
+                x = superdict[ID]['DATA'][:, 0]
+                y = superdict[ID]['DATA'][:, 1]
+                dy = superdict[ID]['DATA'][:, 2]
+                dfparams = fit.model_parameters_df
+                if plotranges:
+                    x_zoom = plotranges[0]
+                    y_zoom = plotranges[1]
+                else:
+                    x_zoom = None
+                    y_zoom = None
+                spl_fig = sps.spl_plot(x, y, dy, dfparams, x_zoom=x_zoom, y_zoom=y_zoom,
                             goodness_marks=fit.goodness)
-            spl_fig.savefig(plotfilename, format = 'png', dpi=400, bbox_inches='tight')
+                spl_fig.savefig(plotfilename, format = 'png', dpi=400, bbox_inches='tight')
+
+
+# MAIN FITTING PROCESS: =================================================================
+
+
+specrange = [4800, 6800]
+plotrange = (None, None)
+#plotrange = ([6500, 6800], None)
+
+
+if spectradict:
+
+    # Execute the fitting over the entire dataset:
+    superdict = multiple_spectra_fitting(spectradict, emlines, initial_conditions, specrange)
+
+    # Saving the files:
+    file_saver(superdict, savefitfiles=True, saveplotfiles=True, plotranges=plotrange)
+
+    print('Fitting completed!')
+
+
 
 
 ###  EXAMPLE DICTIONARY TO TEST THE CODE: **************************************
-
 ### IN CASE NO DICTIONARY IS PROVIDED, THE CODE WILL EXECUTE THIS PART WHICH IS THE EXAMPLE TEST
 if spectradict is None:
     from astropy.io import fits
@@ -224,8 +263,6 @@ if spectradict is None:
     ids = [re.search(pattern, filename).group(1) for filename in specfiles]
 
     dir = os.getcwd()
-    specrange = [4800, 6800]
-    plotrange = ([6500, 6800], None)
 
     # Build the dictionary:
     superdict_test = {}
@@ -236,12 +273,10 @@ if spectradict is None:
         spectra = hdu[1].data
         spec = np.array([spectra['wavelength'], spectra['emlines'], spectra['flux_error']]).T
         redshift = hdu[1].header['Z']
-        superdict_test[id] = {'SPECTRUM': spec, 'REDSHIFT': redshift}
+        superdict_test[id] = {'DATA': spec, 'REDSHIFT': redshift}
 
     print('>>>>   Executing the fits on the example data set   <<<<<')
     superdict_test = multiple_spectra_fitting(superdict_test, emlines, initial_conditions, specrange)
     print('>>>>  Producing the plots and parameter files for the example data set   <<<<<')
     file_saver(superdict_test, savefitfiles=True, saveplotfiles=True, plotranges=plotrange)
     print('Test example done!')
-
-

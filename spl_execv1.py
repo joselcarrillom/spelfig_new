@@ -3,7 +3,7 @@ import spl_execsetupv3 as spe
 import os
 import numpy as np
 
-def spectrum_dictionary(directory,templates):
+def spectrum_dictionary(directory, templates_dir):
 
     '''
     Creates a dictionary containing key info such as filename, spectra, redshift and SNR.
@@ -18,6 +18,9 @@ def spectrum_dictionary(directory,templates):
     '''
 
     spec_dict = {}
+
+    # Extract templates:
+    templates = spe.initialise_templates(templates_dir)
 
     for file in os.listdir(directory):
         filename = os.fsdecode(file)
@@ -53,7 +56,7 @@ def spectrum_dictionary(directory,templates):
 
                         # # if low confidence, try template matching
                         if num_lines < 5:
-                            best_redshift = spe.redshift_calc(data, templates,filename, Plot=True)
+                            best_redshift = spe.redshift_calc(data, templates, filename, Plot=True)
 
                 except Exception as e:
                     continue

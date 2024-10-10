@@ -6,9 +6,10 @@ def gauss(x, loc, a0, sd):
     diff = x-loc
     return  a0 * np.exp(-0.5*(((diff) / sd)**2))
 
-def asym_gauss(x, loc, a0, sd):
+def asym_gauss(x, loc, a0, A, w):
     diff = x-loc
-    return  a0 * np.exp(-0.5*(((diff) / sd)**2))
+    sigma_assym = A*diff + w
+    return a0 * np.exp(-0.5*(((diff) / sigma_assym)**2))
 
 def lorentzian(x, loc, a0, gamma):
     diff = x-loc

@@ -20,8 +20,8 @@ def spectral_model_emcee(theta, x, models, continuum):
                 print('theta', theta)
                 print('This subset at error', theta[param_start:param_end])
             param_start = param_end
-        elif model == 'Asym_Gauss':
-            param_end = param_start + 3
+        elif model == 'Asymmetric Gaussian':
+            param_end = param_start + 4
             try:
                 flux += spm.asym_gauss(x, *theta[param_start:param_end])
             except:
@@ -158,7 +158,7 @@ def results_df(dfparams_init, theta_max, theta_errors, continuum):
                     results_dict['Parameters'].append(theta_max[param_start:param_start + 3])
                     results_dict['Parameter Errors'].append(theta_errors[param_start:param_start + 3])
                     param_start += 3
-                elif model_j == 'Voigt':
+                elif (model_j == 'Voigt') | (model_j == 'Asymmetric Gaussian'):
                     results_dict['Parameters'].append(theta_max[param_start:param_start + 4])
                     results_dict['Parameter Errors'].append(theta_errors[param_start:param_start + 4])
                     param_start += 4
@@ -235,10 +235,9 @@ class mcmc_fit(object):
         self.savefile = savefile
         self.niter = niter
         self.model_parameters_df, self.fit_parameters, self.fit_errors = run_mcmc_chains(
-            self.dfparams, self.x, self.y,
-                                                                   self.dy,
-                                                                   self.save_complete_chains,
-                                                                   self.savefile, self.niter)
+            self.dfparams, self.x, self.y, self.dy, self.save_complete_chains, self.savefile,
+            self.niter)
+
         self.models = self.model_parameters_df['Model'].values
         self.goodness = goodness_of_fit(self.fit_parameters, self.x, self.y, self.dy, self.models,
                                         self.continuum)

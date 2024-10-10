@@ -422,7 +422,7 @@ def spl_plot(x, y, dy, dfparams, x_zoom=None, y_zoom=None, goodness_marks=None):
         elif model == 'Voigt':
             component_y = spm.voigt(x_fit, *row['Parameters'])
             component_y_ev = spm.voigt(x, *row['Parameters'])
-        elif model == 'Asym_Gauss':
+        elif model == 'Asymmetric Gaussian':
             component_y = spm.asym_gauss(x_fit, *row['Parameters'])
             component_y_ev = spm.asym_gauss(x, *row['Parameters'])
 
@@ -490,6 +490,11 @@ def spl_savefile(fit, filename):
     continuum = fit.continuum
     goodness = fit.goodness
     lines = fit.model_parameters_df['Line Name'].unique()
+    lines_list = list(lines)
+
+    if 'Continuum' in lines_list:
+        lines_list.remove('Continuum')
+
 
     # Create a dictionary to store the results
     results_dict = pd.DataFrame({
@@ -498,22 +503,22 @@ def spl_savefile(fit, filename):
         'Component': [],
         'Centroid': [],
         'Amplitude': [],
-        'Sigma': [],
+        'Sigma / A factor': [],
         'Sigma (km/s)': [],
-        'Gamma': [],
+        'Gamma / w width': [],
         'Gamma (km/s)': [],
         'err_Centroid': [],
         'err_Amplitude': [],
-        'err_Sigma': [],
+        'err_Sigma / err_A': [],
         'err_Sigma (km/s)': [],
-        'err_Gamma': [],
+        'err_Gamma / err_w': [],
         'err_Gamma (km/s)': [],
     })
 
     # Populate the dictionary with the results
     param_start = 0
     r = 0 # Index that goes over the rows
-    for line in lines:
+    for line in lines_list:
         Ncomp = fit.model_parameters_df[fit.model_parameters_df['Line Name'] == line][
             'Component'].max()
         for j in range(Ncomp):
@@ -548,6 +553,13 @@ def spl_savefile(fit, filename):
                 gamma = theta_max[param_start + j * 3 + 3]
                 err_sigma = theta_errors[param_start + j * 3 + 2]
                 err_gamma = theta_errors[param_start + j * 3 + 3]
+            elif models[r] == 'Asymmetric Gaussian':
+                pn = 4
+                sigma = theta_max[param_start + j * 3 + 2]
+                gamma = theta_max[param_start + j * 3 + 3]
+                err_sigma = theta_errors[param_start + j * 3 + 2]
+                err_gamma = theta_errors[param_start + j * 3 + 3]
+
 
             sigma_kms = spm.vel_correct(sigma, centroid)
             gamma_kms = spm.vel_correct(gamma, centroid)
@@ -557,9 +569,9 @@ def spl_savefile(fit, filename):
             # Appending results:
             results_dict.loc[r, 'Centroid'] = centroid
             results_dict.loc[r, 'Amplitude'] = amplitude
-            results_dict.loc[r, 'Sigma'] = sigma
+            results_dict.loc[r, 'Sigma / A factor'] = sigma
             results_dict.loc[r, 'Sigma (km/s)'] = sigma_kms
-            results_dict.loc[r, 'Gamma'] = gamma
+            results_dict.loc[r, 'Gamma / w width'] = gamma
             results_dict.loc[r, 'Gamma (km/s)'] = gamma_kms
             results_dict.loc[r, 'err_Centroid'] = err_centroid
             results_dict.loc[r, 'err_Amplitude'] = err_amplitude
@@ -570,21 +582,39 @@ def spl_savefile(fit, filename):
 
             r += 1
 
+        # Number of parameters per line
         params_per_line = pn * Ncomp
         param_start += params_per_line
 
-    # Assume goodness is a dictionary containing some goodness-of-fit results
-    goodness0 = [value for value in goodness.values()]
 
-    # Append the continuum and goodness of fit results:
-    results_dict['Continuum'] = np.full(len(results_dict), np.nan)
-    results_dict['Goodness'] = np.full(len(results_dict), np.nan)
+    # Append continuum and goodness of fit
+    results_dict.loc[r, 'Line Name'] = 'Continuum'
+    results_dict.loc[r, 'Component'] = np.nan
+    results_dict.loc[r, 'Model'] = 'Broken Power Law'
+    results_dict.loc[r, 'Centroid'] = 'p1'
+    results_dict.loc[r, 'Amplitude'] = 'p2'
+    results_dict.loc[r, 'Sigma'] = 'p3'
+    results_dict.loc[r+1, 'Line Name'] = 'Continuum'
+    results_dict.loc[r+1, 'Component'] = np.nan
+    results_dict.loc[r+1, 'Model'] = 'Broken Power Law'
+    results_dict.loc[r+1, 'Centroid'] = continuum[0]
+    results_dict.loc[r+1, 'Amplitude'] = continuum[1]
+    results_dict.loc[r+1, 'Sigma'] = continuum[2]
 
-    # Correct the length check and assignment:
-    results_dict.iloc[:len(goodness0), results_dict.columns.get_loc('Goodness')] = goodness0
+    results_dict.loc[r+2, 'Line Name'] = 'Goodness'
+    results_dict.loc[r+2, 'Component'] = np.nan
+    results_dict.loc[r+2, 'Model'] = 'Goodness of Fit'
+    results_dict.loc[r+2, 'Centroid'] = 'chi2'
+    results_dict.loc[r+2, 'Amplitude'] = 'reduced chi2'
+    results_dict.loc[r+2, 'Sigma'] = 'BIC'
+    results_dict.loc[r+3, 'Line Name'] = 'Goodness'
+    results_dict.loc[r+3, 'Component'] = np.nan
+    results_dict.loc[r+3, 'Model'] = 'Goodness of Fit'
+    results_dict.loc[r+3, 'Centroid'] = goodness['chi squared']
+    results_dict.loc[r+3, 'Amplitude'] = goodness['reduced chi squared']
+    results_dict.loc[r+3, 'Sigma'] = goodness['BIC']
 
-    # Assigning the continuum similarly:
-    results_dict.iloc[:len(continuum), results_dict.columns.get_loc('Continuum')] = continuum
+
 
     tab = pd.DataFrame(results_dict)
     tab.to_csv(filename, index=False)
