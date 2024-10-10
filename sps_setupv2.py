@@ -437,12 +437,9 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
     emlines = emlines_dict.keys()
     for line in filtered_linelist:
         line_name = line['name']
-        components = [emlines_dict[line_name]['components']]
-        print('components', components)
+        components = emlines_dict[line_name]['components']
         Ncomp = len(components)
         for j, component in enumerate(components):
-            print('This is COMPONENT VERIFICATION')
-            print(component)
             if component == 'Voigt':
                 params_i = [line['wavelength'], line['max_flux']/Ncomp, line['sigma'],
                             1.11*line['sigma']]
@@ -456,6 +453,10 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
                 params_i = [line['wavelength'], line['max_flux']/Ncomp, 1.11*line['sigma']]
                 max_i = [line['max_loc'], line['max_flux'], 1.11*line['max_sd']]
                 min_i = [line['min_loc'], 0., 1.11*line['min_sd']]
+            elif component == 'Asymmetric Gaussian':
+                params_i = [line['wavelength'], line['max_flux']/Ncomp, 0.3, line['sigma']]
+                max_i = [line['max_loc'], line['max_flux'], 1.0, 1.11*line['max_sd']]
+                min_i = [line['min_loc'], 0., 0., 1.11*line['min_sd']]
 
             line_names.append(line_name)
             models.append(component)  # Assuming wavelength as centroid
