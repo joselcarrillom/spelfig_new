@@ -435,6 +435,7 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
     max_limits = []
 
     emlines = emlines_dict.keys()
+
     for line in filtered_linelist:
         line_name = line['name']
         components = emlines_dict[line_name]['components']
@@ -465,6 +466,20 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
             min_limits.append(min_i)
             max_limits.append(max_i)
 
+    if continuum_pars is not None:
+        print('Appending continuum')
+        print('QUEPASAAAA')
+        print(continuum_pars)
+        parameters.append(continuum_pars)
+        line_names.append('Continuum')
+        models.append('Continuum')
+        ncomp.append(np.nan)
+        min_limits.append([-np.inf, 0, -np.inf])
+        max_limits.append([np.inf, np.inf, np.inf])
+
+    print('No entiendo')
+    print(models)
+
     dfparams = pd.DataFrame({
         'Line Name': line_names,
         'Model': models,  # Initial components set to 1
@@ -474,15 +489,8 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
         'Min Limits': min_limits,
     })
 
-    if continuum_pars is not None:
-        print('Appending continuum')
-        print(continuum_pars)
-        parameters.append(continuum_pars)
-        line_names.append('Continuum')
-        models.append('Continuum')
-        ncomp.append(0)
-        min_limits.append([-np.inf, 0, -np.inf])
-        max_limits.append([np.inf, np.inf, np.inf])
+    print('Que coño esta pasando')
+    print(dfparams)
 
     return dfparams
 
@@ -510,7 +518,6 @@ def init_setup(spectrum, emlines_dict, wavelength_range, gamma_init):
 
     # Filter the list of lines present in the spectrum:
     linelist0 = filter_and_prepare_linelist(lines_init, continuum0, wavelength_range, snr_cont)
-    print('This first linelist', linelist0)
 
     # Create an initial parameters dataframe:
     dfparams = initial_dataframe(emlines_dict, linelist0, continuum_pars=continuum_pars)
