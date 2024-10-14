@@ -190,7 +190,6 @@ def extract_snr(spectrum, redshift, line=None):
 
     # Define SNR
     snr = (peak_flux - local_mean) / local_std if local_std > 0 else print('huh')
-    print('SNR is ', snr)
 
     return snr
 
@@ -257,9 +256,6 @@ def analyze_emission_lines(x, y, lines_dict, window=20.):
     observed_wavelengths = x
     flux = y
     # Sadly we have to still verify what is happening here
-    print('Complete data')
-    plt.plot(observed_wavelengths, flux)
-    plt.show()
 
     matched_lines = []
     results = []
@@ -270,10 +266,8 @@ def analyze_emission_lines(x, y, lines_dict, window=20.):
         synthetic_flux[:] = 0  # Set to zero or some baseline if entirely NaN
 
     continuum_mask = np.ones(len(flux), dtype=bool)
-    print('LETS REVIEW THE FIRST ANALYZING OF THE EMISSION LINES')
     for name, params in lines_dict.items():
         rest_wavelength = params['wavelength'][0]
-        print('This first reference wavelength', rest_wavelength)
         if rest_wavelength is not None:
             lower_bound = rest_wavelength - window
             upper_bound = rest_wavelength + window
@@ -281,13 +275,6 @@ def analyze_emission_lines(x, y, lines_dict, window=20.):
             window_flux = flux[mask]
             window_wavelengths = observed_wavelengths[mask]
 
-            # Verify the window selection:
-            if window_wavelengths.size:
-                # No other option but plotting. What the heck is happening here?
-                # plt.plot(window_wavelengths, window_flux)
-                # plt.show()
-                print('len window_wavelengths', len(window_wavelengths))
-                print('This is the maximum flux inside the window', np.nanmax(window_flux))
 
             if not window_wavelengths.size:
                 continue
@@ -317,8 +304,6 @@ def analyze_emission_lines(x, y, lines_dict, window=20.):
                     'peak_flux': peak_flux,
                     'peak_idx': np.where(observed_wavelengths == observed_wavelength)[0][0]
                 })
-
-    print('This the lines identified in the first place: ', matched_lines)
 
     # Update continuum mask and calculate synthetic data for gaps
     for line in matched_lines:
@@ -363,7 +348,6 @@ def filter_and_prepare_linelist(line_results, continuum_spec0, wavelength_range,
     # If noise standard deviation is not provided, assume a default or calculate externally
 
     three_sigma = 3 * snr_ext  # 3 sigma threshold for noise
-    print(f'This is 3 sigma: {three_sigma}')
 
     for line in line_results:
         name = line['line']
@@ -467,18 +451,12 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
             max_limits.append(max_i)
 
     if continuum_pars is not None:
-        print('Appending continuum')
-        print('QUEPASAAAA')
-        print(continuum_pars)
         parameters.append(continuum_pars)
         line_names.append('Continuum')
         models.append('Continuum')
-        ncomp.append(np.nan)
+        ncomp.append(0)
         min_limits.append([-np.inf, 0, -np.inf])
         max_limits.append([np.inf, np.inf, np.inf])
-
-    print('No entiendo')
-    print(models)
 
     dfparams = pd.DataFrame({
         'Line Name': line_names,
@@ -488,9 +466,6 @@ def initial_dataframe(emlines_dict, filtered_linelist, continuum_pars=None):
         'Max Limits': max_limits,  # Using max_flux as initial guess for amplitude': sigmas,
         'Min Limits': min_limits,
     })
-
-    print('Que coño esta pasando')
-    print(dfparams)
 
     return dfparams
 
@@ -667,7 +642,7 @@ def spl_plot(x, y, dy, dfparams, x_zoom=None, y_zoom=None, goodness_marks=None):
         elif model == 'Voigt':
             component_y = spm.voigt(x_fit, *row['Parameters'])
             component_y_ev = spm.voigt(x, *row['Parameters'])
-        elif model == 'Asym_Gauss':
+        elif model == 'Asymmetric Gaussian':
             component_y = spm.asym_gauss(x_fit, *row['Parameters'])
             component_y_ev = spm.asym_gauss(x, *row['Parameters'])
 
@@ -689,7 +664,7 @@ def spl_plot(x, y, dy, dfparams, x_zoom=None, y_zoom=None, goodness_marks=None):
 
     # Add Chi-squared and BIC as labels with transparency:
     if goodness_marks:
-        chi2 = goodness_marks['Reduced Chi-Squared']
+        chi2 = goodness_marks['reduced chi squared']
         BIC = goodness_marks['BIC']
         ax1.text(0.05, 0.85, f'Chi-squared: {chi2:.2f}', transform=ax1.transAxes, fontsize=12,
                  color='gray', alpha=0.8)

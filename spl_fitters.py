@@ -8,6 +8,7 @@ def spectral_model_emcee(theta, x, models, continuum):
     # Initializing the flux:
     flux = np.zeros_like(x)
     param_start = 0
+    continuum = list(continuum)
 
     # Adding the emission components:
     for model in models:
@@ -50,11 +51,12 @@ def spectral_model_emcee(theta, x, models, continuum):
             param_start = param_end
 
     # Adding the continuum:
-    try:
-        flux += spm.continuum_function(x, *continuum)
-    except:
-        print('Error while calculating continuum, this set of parameters:')
-        print(continuum)
+    #try:
+
+    #flux += spm.continuum_function(x, *continuum)
+    #except:
+    #print('Error while calculating continuum, this set of parameters:')
+    #print(continuum)
 
     return flux
 
@@ -133,6 +135,9 @@ def results_df(dfparams_init, theta_max, theta_errors, continuum):
     '''
 
     # Create a dictionary to store the results
+    lines_groups = dfparams_init['Line Name'].unique()
+    print('This list of lines groups', lines_groups)
+
     results_dict = {
         'Line Name': [],
         'Model': [],
@@ -143,9 +148,10 @@ def results_df(dfparams_init, theta_max, theta_errors, continuum):
 
     # Populate the dictionary with the results
     param_start = 0
-    lines_groups = dfparams_init.groupby('Line Name')
-    for line, df in lines_groups:
-        linedf = df.reset_index(drop=True)
+
+    for line in lines_groups:
+        linedf = dfparams_init[dfparams_init['Line Name'] == line]
+        linedf = linedf.reset_index(drop=True)
         Ncomp = len(linedf)
         if not line == 'Continuum':
             for j in range(Ncomp):
