@@ -9,11 +9,6 @@
     <a href="https://github.com/aksitadeo/spelfig_aksita"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/aksitadeo/spelfig_aksita/fitting_notebooks/">View Tests</a>
-    ·
-    <a href="https://github.com/github_username/repo_name/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
-    ·
-    <a href="https://github.com/github_username/repo_name/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
   </p>
 </div>
 
@@ -145,7 +140,7 @@ From there, you can simply execute the pipeline using the command:
 ```
 python fittersexec.py
 ```
-The pipeline outputs fitted spectra with corresponding residuals, chi-square, and BIC metrics, along with a summary of fit parameters for each emission line.
+The pipeline outputs fitted spectra with corresponding residuals, $\chi^2$, and BIC metrics, along with a summary of fit parameters for each emission line.
 
 ### Example Fits
 
